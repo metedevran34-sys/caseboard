@@ -20,11 +20,20 @@ import {
   persistBackup,
   restoreBackup,
 } from "./lib/tauriBridge";
+import {
+  fetchBoards as fetchBoardsDB,
+  fetchBoardState as fetchBoardStateDB,
+  saveBoardState as saveBoardStateDB,
+  saveBoardStateDebounced,
+  createBoardInDB,
+  deleteBoardFromDB,
+  renameBoardInDB,
+} from "./lib/supabaseClient";
 
 const SK = "cb_v7";
 const BK = "cb_boards_v7";
 
-const loadBoards = (): BoardReference[] => {
+const loadBoardsLocal = (): BoardReference[] => {
   try {
     const r = localStorage.getItem(BK);
     if (r) return JSON.parse(r);
@@ -159,7 +168,7 @@ const preseededState = (id: string): BoardState => {
   };
 };
 
-const loadState = (id: string): BoardState => {
+const loadStateLocal = (id: string): BoardState => {
   try {
     const r = localStorage.getItem(`${SK}_${id}`);
     if (r) {
@@ -177,7 +186,6 @@ const loadState = (id: string): BoardState => {
     }
   } catch {}
 
-  // Safe recovery backup check
   const recoveryState = restoreBackup(id);
   if (recoveryState) {
     return recoveryState;
@@ -186,10 +194,9 @@ const loadState = (id: string): BoardState => {
   return preseededState(id);
 };
 
-const persist = (id: string, st: BoardState) => {
+const persistLocal = (id: string, st: BoardState) => {
   try {
     localStorage.setItem(`${SK}_${id}`, JSON.stringify(st));
-    // Silent background recovery write
     persistBackup(id, st);
   } catch {}
 };
@@ -457,9 +464,10 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showMinimap, setShowMinimap] = useState(() => loadSettings().showMinimap);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [boards, setBoards] = useState<BoardReference[]>(loadBoards);
-  const [activeBoardId, setActiveBoardId] = useState<string>(() => loadBoards()[0]?.id || "b1");
-  const [state, rawDispatch] = useReducer(reducer, null, () => loadState(loadBoards()[0]?.id || "b1"));
+  const [boards, setBoards] = useState<BoardReference[]>(loadBoardsLocal);
+  const [activeBoardId, setActiveBoardId] = useState<string>(() => loadBoardsLocal()[0]?.id || "b1");
+  const [state, rawDispatch] = useReducer(reducer, null, () => loadStateLocal(loadBoardsLocal()[0]?.id || "b1"));
+  const [dbReady, setDbReady] = useState(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => loadSettings().soundEnabled);
 
@@ -614,14 +622,53 @@ export default function App() {
     } catch {}
   }, [themeColor]);
 
-  // Performs auto-saving of local state periodically
+  // Load boards from Supabase on mount
   useEffect(() => {
-    persist(activeBoardId, state);
-  }, [state, activeBoardId]);
+    (async () => {
+      const dbBoards = await fetchBoardsDB();
+      if (dbBoards.length > 0) {
+        setBoards(dbBoards);
+        const firstId = dbBoards[0].id;
+        setActiveBoardId(firstId);
+        const dbState = await fetchBoardStateDB(firstId);
+        if (dbState) {
+          dispatch({ type: "LOAD", p: dbState });
+        } else {
+          dispatch({ type: "LOAD", p: loadStateLocal(firstId) });
+        }
+        setDbReady(true);
+      } else {
+        // No boards in DB — seed with default board
+        const defaultBoards = loadBoardsLocal();
+        for (const b of defaultBoards) {
+          const st = loadStateLocal(b.id);
+          await createBoardInDB(b.id, b.name, st);
+        }
+        setBoards(defaultBoards);
+        setDbReady(true);
+      }
+    })();
+  }, []);
+
+  // Performs auto-saving — localStorage + Supabase (debounced)
+  useEffect(() => {
+    persistLocal(activeBoardId, state);
+    if (dbReady) {
+      saveBoardStateDebounced(activeBoardId, state);
+    }
+  }, [state, activeBoardId, dbReady]);
 
   const switchBoard = useCallback((id: string) => {
     setActiveBoardId(id);
-    dispatch({ type: "LOAD", p: loadState(id) });
+    // Try Supabase first, fall back to localStorage
+    (async () => {
+      const dbState = await fetchBoardStateDB(id);
+      if (dbState) {
+        dispatch({ type: "LOAD", p: dbState });
+      } else {
+        dispatch({ type: "LOAD", p: loadStateLocal(id) });
+      }
+    })();
     setSearch("");
     setFilterTag(null);
   }, []);
@@ -640,7 +687,8 @@ export default function App() {
       shapes: [],
       nextId: 1,
     };
-    persist(id, empty);
+    persistLocal(id, empty);
+    createBoardInDB(id, name, empty);
     setBoards((prev) => {
       const updated = [...prev, entry];
       try {
@@ -666,6 +714,7 @@ export default function App() {
       try {
         localStorage.removeItem(`${SK}_${modal.id}`);
       } catch {}
+      deleteBoardFromDB(modal.id);
       const rem = boards.filter((b) => b.id !== modal.id);
       if (modal.id === activeBoardId && rem.length > 0) {
         switchBoard(rem[0].id);
@@ -682,7 +731,8 @@ export default function App() {
         nextId: 1,
       };
       dispatch({ type: "CLEAR" });
-      persist(activeBoardId, empty);
+      persistLocal(activeBoardId, empty);
+      if (dbReady) saveBoardStateDB(activeBoardId, empty);
       sendNotification("Pano Temizlendi", "Beyaz tahta yapısı boşaltıldı.");
     } else if (modal.type === "deleteGroup" && modal.groupId) {
       dispatch({ type: "DEL_GROUP", p: modal.groupId });
@@ -802,6 +852,7 @@ export default function App() {
               } catch {}
               return updated;
             });
+            renameBoardInDB(id, name);
           }}
           search={search}
           onSearch={setSearch}
@@ -820,7 +871,8 @@ export default function App() {
                   type: "LOAD",
                   p: { groups: [], texts: [], drawings: [], shapes: [], ...imp },
                 });
-                persist(activeBoardId, imp);
+                persistLocal(activeBoardId, imp);
+                if (dbReady) saveBoardStateDB(activeBoardId, imp as BoardState);
                 sendNotification("İçe Aktarma", "Dosya başarıyla yüklendi.");
               } else {
                 alert("Geçersiz yedekleme dosyası yapısı");
