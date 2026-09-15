@@ -1,0 +1,6 @@
+{
+  "name": "CaseBoard",
+  "description": "Profesyonel dijital beyaz tahta, zihin haritası ve olay analiz platformu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

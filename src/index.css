@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #0f1115;
+  --color-brand-sidebar: #181a1f;
+  --color-brand-surface: #20222a;
+  --color-brand-accent: #0078d4;
+  --color-brand-border: #30363d;
+  --color-brand-text: #e0e0e0;
+  --color-brand-text-dim: #9ca3af;
+  --color-brand-success: #2ea043;
+  
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+/* Custom scrollbars for professional technical feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #181a1f;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0078d4;
+}
+
+@keyframes threadFlow {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-thread-flow {
+  animation: threadFlow 1.6s linear infinite;
+}
+
+@keyframes yarnGlow {
+  0%, 100% {
+    opacity: 0.75;
+    filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.8));
+  }
+}
+
+.animate-yarn-glow {
+  animation: yarnGlow 2.5s ease-in-out infinite;
+}
